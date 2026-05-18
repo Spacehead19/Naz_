@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Dyson Sphere Simulation</title>
+<style>
+:root {
+color-scheme: dark;
+font-family: Arial, Helvetica, sans-serif;
+background: #080a10;
+color: #f5f7fb;
+}
+
+* {
+box-sizing: border-box;
+}
+
+body {
+margin: 0;
+min-height: 100vh;
+display: grid;
+grid-template-columns: minmax(280px, 360px) 1fr;
+background:
+radial-gradient(circle at 70% 20%, rgba(255, 190, 88, 0.12), transparent 32%),
+linear-gradient(135deg, #070911 0%, #10131c 45%, #080a10 100%);
+}
+
+aside {
+padding: 24px;
+border-right: 1px solid rgba(255, 255, 255, 0.12);
+background: rgba(10, 13, 22, 0.82);
+backdrop-filter: blur(16px);
+}
+
+main {
+position: relative;
+min-height: 100vh;
+overflow: hidden;
+}
+
+h1 {
+margin: 0 0 8px;
+font-size: 28px;
+line-height: 1.05;
+letter-spacing: 0;
+}
+
+p {
+margin: 0 0 22px;
+color: #b8c0d4;
+line-height: 1.45;
+}
+
+.control {
+display: grid;
+gap: 8px;
+margin: 20px 0;
+}
+
+label {
+display: flex;
+justify-content: space-between;
+gap: 16px;
+font-size: 14px;
+color: #dbe2f4;
+}
+
+output {
+color: #ffcf75;
+font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+width: 100%;
+accent-color: #ffb84d;
+}
+
+.stats {
+display: grid;
+gap: 12px;
+margin-top: 28px;
+}
+
+.stat {
+padding: 14px;
+border: 1px solid rgba(255, 255, 255, 0.13);
+border-radius: 8px;
+background: rgba(255, 255, 255, 0.06);
+}
+
+.stat span {
+display: block;
+color: #9da8c2;
+font-size: 12px;
+text-transform: uppercase;
+}
+
+.stat strong {
+display: block;
+margin-top: 6px;
+font-size: 24px;
+color: #fff3cc;
+font-variant-numeric: tabular-nums;
+}
+
+canvas {
+display: block;
+width: 100%;
+height: 100%;
+}
+
+.hint {
+position: absolute;
+right: 18px;
+bottom: 16px;
+color: rgba(245, 247, 251, 0.62);
+font-size: 13px;
+pointer-events: none;
+}
+
+@media (max-width: 800px) {
+body {
+grid-template-columns: 1fr;
+}
+
+aside {
+border-right: 0;
+border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+main {
+min-height: 58vh;
+}
+}
+</style>
+</head>
+<body>
+<aside>
+<h1>Dyson Swarm</h1>
+<p>A simple Dyson sphere idea: many orbiting collectors catch part of a star's energy and beam it back.</p>
+
+<div class="control">
+<label for="collectors">
+Collectors
+<output id="collectorValue">80</output>
+</label>
+<input id="collectors" type="range" min="12" max="220" value="80">
+</div>
+
+<div class="control">
+<label for="orbit">
+Orbit radius
+<output id="orbitValue">180</output>
+</label>
+<input id="orbit" type="range" min="95" max="270" value="180">
+</div>
+
+<div class="control">
+<label for="speed">
+Speed multiplier
+<output id="speedValue">1.0x</output>
+</label>
+<input id="speed" type="range" min="0" max="3" step="0.1" value="1">
+</div>
+
+<div class="control">
+<label for="efficiency">
+Collector efficiency
+<output id="efficiencyValue">42%</output>
+</label>
+<input id="efficiency" type="range" min="5" max="85" value="42">
+</div>
+
+<section class="stats" aria-label="Simulation statistics">
+<div class="stat">
+<span>Energy captured</span>
+<strong id="energyText">0.0%</strong>
+</div>
+<div class="stat">
+<span>Power output</span>
+<strong id="powerText">0.00 TW</strong>
+</div>
+</section>
+</aside>
+
+<main>
+<canvas id="space"></canvas>
+<div class="hint">Drag sliders to reshape the swarm</div>
+</main>
+
+<script>
+const canvas = document.querySelector("#space");
+const ctx = canvas.getContext("2d");
+
+const controls = {
+collectors: document.querySelector("#collectors"),
+orbit: document.querySelector("#orbit"),
+speed: document.querySelector("#speed"),
+efficiency: document.querySelector("#efficiency")
+};
+
+const labels = {
+collectors: document.querySelector("#collectorValue"),
+orbit: document.querySelector("#orbitValue"),
+speed: document.querySelector("#speedValue"),
+efficiency: document.querySelector("#efficiencyValue"),
+energy: document.querySelector("#energyText"),
+power: document.querySelector("#powerText")
+};
+
+let width = 0;
+let height = 0;
+let time = 0;
+let stars = [];
+
+function resize() {
+const ratio = window.devicePixelRatio || 1;
+width = canvas.clientWidth;
+height = canvas.clientHeight;
+canvas.width = Math.floor(width * ratio);
+canvas.height = Math.floor(height * ratio);
+ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+stars = makeStars(130);
+}
+
+function makeStars(count) {
+return Array.from({ length: count }, () => ({
+x: Math.random() * width,
+y: Math.random() * height,
+r: Math.random() * 1.4 + 0.2,
+glow: Math.random() * 0.6 + 0.25
+}));
+}
+
+function readSettings() {
+return {
+collectors: Number(controls.collectors.value),
+orbit: Number(controls.orbit.value),
+speed: Number(controls.speed.value),
+efficiency: Number(controls.efficiency.value)
+};
+}
+
+function updateLabels(settings) {
+const keplerSpeed = settings.speed * Math.sqrt(180 / settings.orbit);
+
+labels.collectors.value = settings.collectors;
+labels.orbit.value = settings.orbit;
+labels.speed.value = keplerSpeed.toFixed(2) + "x";
+labels.efficiency.value = settings.efficiency + "%";
+
+const coverage = 1 - Math.exp(-settings.collectors / 190);
+const distanceLoss = 180 / settings.orbit;
+const captured = coverage * (settings.efficiency / 100) * distanceLoss;
+const percent = Math.min(captured * 100, 99.9);
+const terawatts = percent * 38.46;
+
+labels.energy.textContent = percent.toFixed(1) + "%";
+labels.power.textContent = terawatts.toFixed(2) + " TW";
+}
+
+function drawBackground() {
+ctx.fillStyle = "#070911";
+ctx.fillRect(0, 0, width, height);
+
+for (const star of stars) {
+ctx.globalAlpha = star.glow;
+ctx.fillStyle = "#ffffff";
+ctx.beginPath();
+ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+ctx.fill();
+}
+ctx.globalAlpha = 1;
+}
+
+function drawStar(cx, cy) {
+const glow = ctx.createRadialGradient(cx, cy, 10, cx, cy, 110);
+glow.addColorStop(0, "rgba(255, 246, 186, 1)");
+glow.addColorStop(0.22, "rgba(255, 176, 55, 0.92)");
+glow.addColorStop(0.55, "rgba(255, 112, 42, 0.32)");
+glow.addColorStop(1, "rgba(255, 112, 42, 0)");
+
+ctx.fillStyle = glow;
+ctx.beginPath();
+ctx.arc(cx, cy, 110, 0, Math.PI * 2);
+ctx.fill();
+
+ctx.fillStyle = "#ffd36b";
+ctx.beginPath();
+ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+ctx.fill();
+}
+
+function drawOrbit(cx, cy, radius) {
+ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+ctx.stroke();
+}
+
+function drawCollector(x, y, angle) {
+ctx.save();
+ctx.translate(x, y);
+ctx.rotate(angle);
+ctx.fillStyle = "#a7d8ff";
+ctx.strokeStyle = "rgba(255, 255, 255, 0.65)";
+ctx.lineWidth = 1;
+ctx.fillRect(-5, -2, 10, 4);
+ctx.strokeRect(-5, -2, 10, 4);
+ctx.restore();
+}
+
+function drawEnergyBeam(cx, cy, x, y, opacity) {
+ctx.strokeStyle = `rgba(93, 220, 255, ${opacity})`;
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(x, y);
+ctx.lineTo(cx, cy);
+ctx.stroke();
+}
+
+function drawSwarm(settings) {
+const cx = width / 2;
+const cy = height / 2;
+const radius = Math.min(settings.orbit, Math.min(width, height) * 0.42);
+const count = settings.collectors;
+const keplerSpeed = settings.speed * Math.sqrt(180 / settings.orbit);
+
+drawOrbit(cx, cy, radius);
+drawStar(cx, cy);
+
+for (let i = 0; i < count; i += 1) {
+const phase = (i / count) * Math.PI * 2;
+const wobble = Math.sin(time * 0.8 + i) * 5;
+const angle = phase + time * keplerSpeed * (0.14 + (i % 5) * 0.01);
+const x = cx + Math.cos(angle) * (radius + wobble);
+const y = cy + Math.sin(angle) * (radius * 0.55 + wobble);
+
+if (i % 9 === 0) {
+drawEnergyBeam(cx, cy, x, y, 0.16 + settings.efficiency / 700);
+}
+drawCollector(x, y, angle + Math.PI / 2);
+}
+}
+
+function animate() {
+const settings = readSettings();
+time += 0.016;
+updateLabels(settings);
+drawBackground();
+drawSwarm(settings);
+requestAnimationFrame(animate);
+}
+
+window.addEventListener("resize", resize);
+resize();
+animate();
+</script>
+</body>
+</html>
+
